@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
+using System.Reflection;
 
 namespace FrpGUIClient
 {
@@ -19,11 +20,13 @@ namespace FrpGUIClient
         private BackgroundWorker bgWorker = new BackgroundWorker();
         private bool stopRequested = false;
         private int maxRetries = 10;
-
+        
         public Form1()
         {
             InitializeComponent();
 
+            ExtractFRPC();
+            
             bgWorker.WorkerSupportsCancellation = true;
             bgWorker.DoWork += BgWorker_DoWork;
             bgWorker.ProgressChanged += BgWorker_ProgressChanged;
@@ -31,20 +34,42 @@ namespace FrpGUIClient
             bgWorker.WorkerReportsProgress = true;
 
             LoadConfig();
+
+            if (checkBox1.Checked)
+            {
+                buttonStart_Click(buttonStart, EventArgs.Empty);
+            }
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (frpProcess != null && !frpProcess.HasExited)
+            if (e.CloseReason == CloseReason.UserClosing)
             {
-                var result = MessageBox.Show("현재 연결이 끊어집니다. 종료하시겠습니까?", "종료 확인", MessageBoxButtons.YesNo);
-                if (result == DialogResult.Yes)
+                e.Cancel = true;
+                this.Hide();
+            }
+        }
+
+        private void ExtractFRPC()
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            // frpc를 프로젝트에 '포함 리소스'로 추가하여야 합니다.
+            string resourceName = "FrpGUIClient.frpc.exe";
+            
+            using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+            {
+                if (stream == null)
                 {
-                    StopFrp();
+                    MessageBox.Show("리소스에서 frpc.exe를 불러오지 못했습니다.");
+                    return;
                 }
-                else
+
+                string exePath = Application.StartupPath;
+                string tempPath = Path.Combine(exePath, "frpc.exe");
+                using (FileStream fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
                 {
-                    e.Cancel = true;
+                    stream.CopyTo(fs);
+                    richTextBoxOutput.AppendText("리소스에서 frpc.exe를 불러왔습니다.\n");
                 }
             }
         }
@@ -75,6 +100,7 @@ namespace FrpGUIClient
                             if (key == "server_addr") textBoxServerAddr.Text = val;
                             if (key == "server_port") textBoxServerPort.Text = val;
                             if (key == "token") textBoxAuthToken.Text = val;
+                            if (key == "auto_start") checkBox1.Checked = Convert.ToBoolean(val);
                         }
                         else
                         {
@@ -206,6 +232,7 @@ namespace FrpGUIClient
                 sw.WriteLine($"server_addr = {textBoxServerAddr.Text.Trim()}");
                 sw.WriteLine($"server_port = {textBoxServerPort.Text.Trim()}");
                 sw.WriteLine($"token = {textBoxAuthToken.Text.Trim()}");
+                sw.WriteLine($"auto_start = {checkBox1.Checked.ToString()}");
                 sw.WriteLine();
                 sw.WriteLine($"[{proxyName}]");
                 sw.WriteLine("type = tcp");
@@ -412,6 +439,50 @@ namespace FrpGUIClient
                 buttonStart.Enabled = true;
                 buttonStop.Enabled = false;
             }
+        }
+
+        private void 창보이기ShowWindowToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            this.Show();
+            notifyIcon1.Visible = true;
+        }
+
+        private void 종료ExitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (frpProcess != null && !frpProcess.HasExited)
+            {
+                var result = MessageBox.Show("현재 연결이 끊어집니다. 종료하시겠습니까?", "종료 확인", MessageBoxButtons.YesNo);
+                if (result == DialogResult.Yes)
+                {
+                    StopFrp();
+                    this.notifyIcon1.Visible = false;
+                    int remotePort;
+                    int.TryParse(textBoxRemotePort.Text.Trim(), out remotePort);
+                    string proxyName = textBoxDeviceName.Text.Trim();
+                    GenerateConfig(remotePort, proxyName);
+                    Application.Exit();
+                }
+            }
+            else
+            {
+                this.notifyIcon1.Visible = false;
+                int remotePort;
+                int.TryParse(textBoxRemotePort.Text.Trim(), out remotePort);
+                string proxyName = textBoxDeviceName.Text.Trim();
+                GenerateConfig(remotePort, proxyName);
+                Application.Exit();
+            }
+        }
+
+        private void notifyIcon1_DoubleClick(object sender, EventArgs e)
+        {
+            this.Show();
+            notifyIcon1.Visible = true;
+        }
+
+        private void Form1_Shown(object sender, EventArgs e)
+        {
+            this.Hide();
         }
     }
 }
